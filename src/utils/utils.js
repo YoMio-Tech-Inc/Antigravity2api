@@ -280,9 +280,50 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
     userAgent: "antigravity"
   }
 }
+
+function generateNativeRequestBody(nativeRequest, modelName, apiKey) {
+  const { contents, systemInstruction, generationConfig, tools, toolConfig, safetySettings } = nativeRequest;
+
+  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+
+  const cacheKey = apiKey || 'default';
+  const { projectId, sessionId } = getCachedIds(cacheKey);
+
+  // 直接透传用户的原生请求参数，不做任何转换
+  const request = {
+    contents: contents,
+    sessionId: sessionId
+  };
+
+  // 只有用户提供了这些参数才添加，否则不添加（让 API 使用默认值）
+  if (systemInstruction) {
+    request.systemInstruction = systemInstruction;
+  }
+  if (generationConfig) {
+    request.generationConfig = generationConfig;
+  }
+  if (tools) {
+    request.tools = tools;
+  }
+  if (toolConfig) {
+    request.toolConfig = toolConfig;
+  }
+  if (safetySettings) {
+    request.safetySettings = safetySettings;
+  }
+
+  return {
+    project: projectId,
+    requestId: generateRequestId(),
+    request: request,
+    model: actualModelName,
+    userAgent: "antigravity"
+  };
+}
 export {
   generateRequestId,
   generateSessionId,
   generateProjectId,
-  generateRequestBody
+  generateRequestBody,
+  generateNativeRequestBody
 }

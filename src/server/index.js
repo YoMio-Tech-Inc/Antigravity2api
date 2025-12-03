@@ -2,13 +2,14 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { generateAssistantResponse, getAvailableModels } from '../api/client.js';
-import { generateRequestBody } from '../utils/utils.js';
+import { generateAssistantResponse, generateRawResponse, getAvailableModels } from '../api/client.js';
+import { generateRequestBody, generateNativeRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 import adminRoutes, { incrementRequestCount, addLog } from '../admin/routes.js';
 import { validateKey, checkRateLimit } from '../admin/key_manager.js';
 import idleManager from '../utils/idle_manager.js';
+import tokenManager from '../auth/token_manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,7 +49,7 @@ app.use((err, req, res, next) => {
 // 请求日志中间件
 app.use((req, res, next) => {
   // 记录请求活动，管理空闲状态
-  if (req.path.startsWith('/v1/')) {
+  if (req.path.startsWith('/v1/') || req.path.startsWith('/v1beta/')) {
     idleManager.recordActivity();
   }
 
@@ -58,7 +59,7 @@ app.use((req, res, next) => {
     logger.request(req.method, req.path, res.statusCode, duration);
 
     // 记录到管理日志
-    if (req.path.startsWith('/v1/')) {
+    if (req.path.startsWith('/v1/') || req.path.startsWith('/v1beta/')) {
       incrementRequestCount();
       addLog('info', `${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
     }
@@ -68,15 +69,26 @@ app.use((req, res, next) => {
 
 // API 密钥验证和频率限制中间件
 app.use(async (req, res, next) => {
-  if (req.path.startsWith('/v1/')) {
+  if (req.path.startsWith('/v1/') || req.path.startsWith('/v1beta/')) {
     const apiKey = config.security?.apiKey;
     if (apiKey) {
       const authHeader = req.headers.authorization;
-      const providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+      const googleApiKey = req.headers['x-goog-api-key'];
+      const providedKey = googleApiKey ||
+        (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
 
       // 先检查配置文件中的密钥（不受频率限制）
       if (providedKey === apiKey) {
         return next();
+      }
+
+      // 检查是否是 refresh_token 格式（以 1// 开头），如果是则检查是否存在于 accounts 中
+      if (providedKey?.startsWith('1//')) {
+        tokenManager.loadTokens();  // 确保数据已加载
+        const exists = tokenManager.cachedData?.some(t => t.refresh_token === providedKey);
+        if (exists) {
+          return next();  // refresh_token 存在，允许通过（不受频率限制）
+        }
       }
 
       // 再检查数据库中的密钥
@@ -149,7 +161,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
 
     const authHeader = req.headers.authorization;
-    const apiKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+    const googleApiKey = req.headers['x-goog-api-key'];
+    const apiKey = googleApiKey ||
+      (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+
+    // 检测 apiKey 是否是 refresh_token 格式（以 1// 开头）
+    const refreshToken = apiKey?.startsWith('1//') ? apiKey : null;
 
     const requestBody = generateRequestBody(messages, model, params, tools, apiKey);
 
@@ -182,7 +199,7 @@ app.post('/v1/chat/completions', async (req, res) => {
             choices: [{ index: 0, delta: { content: data.content }, finish_reason: null }]
           })}\n\n`);
         }
-      });
+      }, refreshToken);
 
       res.write(`data: ${JSON.stringify({
         id,
@@ -202,7 +219,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         } else {
           fullContent += data.content;
         }
-      });
+      }, refreshToken);
 
       const message = { role: 'assistant', content: fullContent };
       if (toolCalls.length > 0) {
@@ -248,6 +265,84 @@ app.post('/v1/chat/completions', async (req, res) => {
         res.end();
       } else {
         res.status(500).json({ error: error.message });
+      }
+    }
+  }
+});
+
+// Google 原生 API: generateContent 和 streamGenerateContent
+// 支持: /v1beta/models/{model}:generateContent 和 /v1beta/models/{model}:streamGenerateContent
+app.post('/v1beta/models/:modelAction', async (req, res) => {
+  const { modelAction } = req.params;
+  const lastColonIndex = modelAction.lastIndexOf(':');
+
+  if (lastColonIndex === -1) {
+    return res.status(400).json({
+      error: { code: 400, message: 'Invalid request format. Expected: /v1beta/models/{model}:{action}', status: 'INVALID_ARGUMENT' }
+    });
+  }
+
+  const model = modelAction.substring(0, lastColonIndex);
+  const action = modelAction.substring(lastColonIndex + 1);
+
+  if (action !== 'generateContent' && action !== 'streamGenerateContent') {
+    return res.status(400).json({
+      error: { code: 400, message: `Unsupported action: ${action}. Supported actions: generateContent, streamGenerateContent`, status: 'INVALID_ARGUMENT' }
+    });
+  }
+
+  const isStream = action === 'streamGenerateContent';
+  const { contents } = req.body;
+
+  if (!contents) {
+    return res.status(400).json({
+      error: { code: 400, message: 'contents is required', status: 'INVALID_ARGUMENT' }
+    });
+  }
+
+  try {
+    const authHeader = req.headers.authorization;
+    const googleApiKey = req.headers['x-goog-api-key'];
+    const apiKey = googleApiKey ||
+      (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+
+    // 检测 apiKey 是否是 refresh_token 格式（以 1// 开头）
+    const refreshToken = apiKey?.startsWith('1//') ? apiKey : null;
+
+    const requestBody = generateNativeRequestBody(req.body, model, apiKey);
+
+    if (isStream) {
+      // SSE 流式响应 - 完美透传
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      await generateRawResponse(requestBody, (response) => {
+        // 直接透传 Google 的响应
+        res.write(`data: ${JSON.stringify(response)}\n\n`);
+      }, refreshToken);
+      res.end();
+    } else {
+      // 非流式响应 - 返回最后一个完整响应
+      const finalResponse = await generateRawResponse(requestBody, () => {}, refreshToken);
+      res.json(finalResponse);
+    }
+  } catch (error) {
+    logger.error('Google 原生 API 生成响应失败:', error.message);
+    if (!res.headersSent) {
+      if (isStream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        const errorChunk = {
+          error: { code: 500, message: error.message, status: 'INTERNAL' }
+        };
+        res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({
+          error: { code: 500, message: error.message, status: 'INTERNAL' }
+        });
       }
     }
   }

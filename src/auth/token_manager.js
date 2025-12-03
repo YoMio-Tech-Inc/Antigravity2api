@@ -192,6 +192,31 @@ class TokenManager {
     }
   }
 
+  // 根据 refresh_token 获取指定账号（忽略轮询，忽略 enable 状态）
+  async getTokenByRefreshToken(refreshToken) {
+    this.loadTokens();
+
+    // 从所有账号中查找（包括禁用的）
+    const allTokens = this.cachedData || [];
+    const token = allTokens.find(t => t.refresh_token === refreshToken);
+
+    if (!token) {
+      return null;
+    }
+
+    try {
+      if (this.isExpired(token)) {
+        await this.refreshToken(token);
+      }
+      this.recordUsage(token);
+      log.info(`🎯 指定使用 refresh_token 账号 (总请求: ${this.getTokenRequests(token)})`);
+      return token;
+    } catch (error) {
+      log.error(`指定账号刷新失败:`, error.message);
+      throw error;
+    }
+  }
+
   async handleRequestError(error, currentAccessToken) {
     if (error.statusCode === 403) {
       log.warn('请求遇到403错误，尝试刷新token');
