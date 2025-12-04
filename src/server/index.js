@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { generateAssistantResponse, generateRawResponse, getAvailableModels } from '../api/client.js';
+import { generateAssistantResponse, generateRawResponse, generateRawResponseNonStream, getAvailableModels } from '../api/client.js';
 import { generateRequestBody, generateNativeRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
@@ -323,8 +323,8 @@ app.post('/v1beta/models/:modelAction', async (req, res) => {
       }, refreshToken);
       res.end();
     } else {
-      // 非流式响应 - 返回最后一个完整响应
-      const finalResponse = await generateRawResponse(requestBody, () => {}, refreshToken);
+      // 非流式响应 - 调用真正的非流式接口
+      const finalResponse = await generateRawResponseNonStream(requestBody, refreshToken);
       res.json(finalResponse);
     }
   } catch (error) {

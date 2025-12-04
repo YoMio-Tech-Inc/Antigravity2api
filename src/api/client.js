@@ -144,7 +144,59 @@ export async function generateAssistantResponse(requestBody, callback, refreshTo
   return { usageMetadata };
 }
 
-// 用于 Google 原生 API 的完美透传函数
+// 用于 Google 原生 API 的非流式请求函数
+export async function generateRawResponseNonStream(requestBody, refreshToken = null) {
+  const token = refreshToken
+    ? await tokenManager.getTokenByRefreshToken(refreshToken)
+    : await tokenManager.getToken();
+
+  if (!token) {
+    throw new Error(refreshToken
+      ? '未找到指定的 refresh_token 对应的账号'
+      : '没有可用的token，请运行 npm run login 获取token');
+  }
+
+  if (token.project_id) {
+    requestBody.project = token.project_id;
+  }
+
+  const response = await fetch(config.api.nonStreamUrl, {
+    method: 'POST',
+    headers: {
+      'Host': config.api.host,
+      'User-Agent': config.api.userAgent,
+      'Authorization': `Bearer ${token.access_token}`,
+      'Content-Type': 'application/json',
+      'Accept-Encoding': 'gzip'
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const model = requestBody.model || 'unknown';
+    const projectId = requestBody.project || token.project_id || 'none';
+    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
+    const debugInfo = `[URL: ${config.api.nonStreamUrl}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
+
+    if (response.status === 403) {
+      tokenManager.disableCurrentToken(token);
+      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
+    }
+    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
+  }
+
+  const responseText = await response.text();
+  try {
+    const data = JSON.parse(responseText);
+    // 返回 response 字段（与流式接口格式一致）
+    return data.response || data;
+  } catch (e) {
+    throw new Error(`JSON解析失败: ${e.message}. 原始响应: ${responseText.substring(0, 200)}`);
+  }
+}
+
+// 用于 Google 原生 API 的流式透传函数
 export async function generateRawResponse(requestBody, onChunk, refreshToken = null) {
   // 如果传入了 refreshToken，使用指定账号；否则使用轮询
   const token = refreshToken
