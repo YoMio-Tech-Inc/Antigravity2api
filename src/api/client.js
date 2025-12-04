@@ -1,6 +1,43 @@
 import tokenManager from '../auth/token_manager.js';
 import config from '../config/config.js';
 
+// 自定义 API 错误类，携带原始状态码和响应体
+export class ApiError extends Error {
+  constructor(message, statusCode, responseBody, debugInfo) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = statusCode;
+    this.responseBody = responseBody;
+    this.debugInfo = debugInfo;
+  }
+}
+
+// 创建 API 错误的公共函数
+function createApiError(response, errorText, token, requestBody, url) {
+  const model = requestBody.model || 'unknown';
+  const projectId = requestBody.project || token.project_id || 'none';
+  const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
+  const debugInfo = `[URL: ${url}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
+
+  if (response.status === 403) {
+    tokenManager.disableCurrentToken(token);
+  }
+
+  let responseBody;
+  try {
+    responseBody = JSON.parse(errorText);
+  } catch {
+    responseBody = { error: { message: errorText } };
+  }
+
+  return new ApiError(
+    `API请求失败 (${response.status}): ${debugInfo} ${errorText}`,
+    response.status,
+    responseBody,
+    debugInfo
+  );
+}
+
 export async function generateAssistantResponse(requestBody, callback, refreshToken = null) {
   // 如果传入了 refreshToken，使用指定账号；否则使用轮询
   const token = refreshToken
@@ -34,16 +71,7 @@ export async function generateAssistantResponse(requestBody, callback, refreshTo
 
   if (!response.ok) {
     const errorText = await response.text();
-    const model = requestBody.model || 'unknown';
-    const projectId = requestBody.project || token.project_id || 'none';
-    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
-    const debugInfo = `[URL: ${url}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
-
-    if (response.status === 403) {
-      tokenManager.disableCurrentToken(token);
-      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
-    }
-    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
+    throw createApiError(response, errorText, token, requestBody, url);
   }
 
   const reader = response.body.getReader();
@@ -174,16 +202,7 @@ export async function generateRawResponseNonStream(requestBody, refreshToken = n
 
   if (!response.ok) {
     const errorText = await response.text();
-    const model = requestBody.model || 'unknown';
-    const projectId = requestBody.project || token.project_id || 'none';
-    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
-    const debugInfo = `[URL: ${config.api.nonStreamUrl}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
-
-    if (response.status === 403) {
-      tokenManager.disableCurrentToken(token);
-      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
-    }
-    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
+    throw createApiError(response, errorText, token, requestBody, config.api.nonStreamUrl);
   }
 
   const responseText = await response.text();
@@ -228,16 +247,7 @@ export async function generateRawResponse(requestBody, onChunk, refreshToken = n
 
   if (!response.ok) {
     const errorText = await response.text();
-    const model = requestBody.model || 'unknown';
-    const projectId = requestBody.project || token.project_id || 'none';
-    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
-    const debugInfo = `[URL: ${config.api.url}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
-
-    if (response.status === 403) {
-      tokenManager.disableCurrentToken(token);
-      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
-    }
-    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
+    throw createApiError(response, errorText, token, requestBody, config.api.url);
   }
 
   const reader = response.body.getReader();

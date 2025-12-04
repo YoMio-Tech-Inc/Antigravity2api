@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { generateAssistantResponse, generateRawResponse, generateRawResponseNonStream, getAvailableModels } from '../api/client.js';
+import { generateAssistantResponse, generateRawResponse, generateRawResponseNonStream, getAvailableModels, ApiError } from '../api/client.js';
 import { generateRequestBody, generateNativeRequestBody } from '../utils/utils.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
@@ -241,31 +241,18 @@ app.post('/v1/chat/completions', async (req, res) => {
   } catch (error) {
     logger.error('生成响应失败:', error.message);
     if (!res.headersSent) {
-      if (stream) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const id = `chatcmpl-${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
-        res.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [{ index: 0, delta: { content: `错误: ${error.message}` }, finish_reason: null }]
-        })}\n\n`);
-        res.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
-        })}\n\n`);
-        res.write('data: [DONE]\n\n');
-        res.end();
-      } else {
-        res.status(500).json({ error: error.message });
-      }
+      // 获取原始状态码
+      const statusCode = error instanceof ApiError ? error.statusCode : 500;
+      const errorMessage = error.message;
+
+      // 无论流式还是非流式，都返回普通 JSON 响应 + 正确状态码
+      res.status(statusCode).json({
+        error: {
+          message: errorMessage,
+          type: 'api_error',
+          code: statusCode
+        }
+      });
     }
   }
 });
@@ -330,20 +317,14 @@ app.post('/v1beta/models/:modelAction', async (req, res) => {
   } catch (error) {
     logger.error('Google 原生 API 生成响应失败:', error.message);
     if (!res.headersSent) {
-      if (isStream) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const errorChunk = {
-          error: { code: 500, message: error.message, status: 'INTERNAL' }
-        };
-        res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
-        res.end();
-      } else {
-        res.status(500).json({
-          error: { code: 500, message: error.message, status: 'INTERNAL' }
-        });
-      }
+      // 获取原始状态码和响应体
+      const statusCode = error instanceof ApiError ? error.statusCode : 500;
+      const responseBody = error instanceof ApiError ? error.responseBody : {
+        error: { code: 500, message: error.message, status: 'INTERNAL' }
+      };
+
+      // 无论流式还是非流式，都返回普通 JSON 响应 + 正确状态码
+      res.status(statusCode).json(responseBody);
     }
   }
 });
