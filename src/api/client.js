@@ -34,11 +34,16 @@ export async function generateAssistantResponse(requestBody, callback, refreshTo
 
   if (!response.ok) {
     const errorText = await response.text();
+    const model = requestBody.model || 'unknown';
+    const projectId = requestBody.project || token.project_id || 'none';
+    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
+    const debugInfo = `[URL: ${url}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
+
     if (response.status === 403) {
       tokenManager.disableCurrentToken(token);
-      throw new Error(`该账号没有使用权限，已自动禁用。错误详情: ${errorText}`);
+      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
     }
-    throw new Error(`API请求失败 (${response.status}): ${errorText}`);
+    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
   }
 
   const reader = response.body.getReader();
@@ -171,11 +176,16 @@ export async function generateRawResponse(requestBody, onChunk, refreshToken = n
 
   if (!response.ok) {
     const errorText = await response.text();
+    const model = requestBody.model || 'unknown';
+    const projectId = requestBody.project || token.project_id || 'none';
+    const tokenEmail = token.email || (token.refresh_token ? token.refresh_token.slice(0, 10) + '...' : 'unknown');
+    const debugInfo = `[URL: ${config.api.url}] [Model: ${model}] [Project: ${projectId}] [Account: ${tokenEmail}]`;
+
     if (response.status === 403) {
       tokenManager.disableCurrentToken(token);
-      throw new Error(`该账号没有使用权限，已自动禁用。错误详情: ${errorText}`);
+      throw new Error(`该账号没有使用权限，已自动禁用。${debugInfo} 错误详情: ${errorText}`);
     }
-    throw new Error(`API请求失败 (${response.status}): ${errorText}`);
+    throw new Error(`API请求失败 (${response.status}): ${debugInfo} ${errorText}`);
   }
 
   const reader = response.body.getReader();
