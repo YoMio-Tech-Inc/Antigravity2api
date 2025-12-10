@@ -28,11 +28,23 @@ export default function Dashboard() {
                     fetch('/admin/today-requests', { headers })
                 ]);
 
-                const keys = await keysRes.json();
-                const tokens = await tokensRes.json();
-                const keyStats = await keyStatsRes.json();
-                const tokenStats = await tokenStatsRes.json();
-                const todayReq = await todayReqRes.json();
+                // 辅助函数：安全解析 JSON
+                const safeJson = async (res) => {
+                    if (!res.ok) return null;
+                    const text = await res.text();
+                    if (!text) return null;
+                    try {
+                        return JSON.parse(text);
+                    } catch {
+                        return null;
+                    }
+                };
+
+                const keys = await safeJson(keysRes) || [];
+                const tokens = await safeJson(tokensRes) || [];
+                const keyStats = await safeJson(keyStatsRes) || {};
+                const tokenStats = await safeJson(tokenStatsRes) || {};
+                const todayReq = await safeJson(todayReqRes) || {};
 
                 setStats({
                     keys: keys.length,

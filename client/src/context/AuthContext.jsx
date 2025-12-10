@@ -44,7 +44,19 @@ export function AuthProvider({ children }) {
                 body: JSON.stringify({ password })
             });
 
-            const data = await response.json();
+            // 先获取响应文本，再尝试解析 JSON
+            const text = await response.text();
+            if (!text) {
+                return { success: false, error: '服务器无响应，请检查后端是否运行' };
+            }
+
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                console.error('JSON 解析失败:', text);
+                return { success: false, error: '服务器响应格式错误' };
+            }
 
             if (response.ok && data.success) {
                 setToken(data.token);
