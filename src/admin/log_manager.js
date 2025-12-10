@@ -31,11 +31,28 @@ export async function loadLogs() {
   await ensureDataDir();
   try {
     const data = await fs.readFile(LOGS_FILE, 'utf-8');
+    // 处理空文件或无效 JSON 的情况
+    if (!data || !data.trim()) {
+      logsCache = [];
+      lastCacheTime = now;
+      return [];
+    }
     logsCache = JSON.parse(data);
+    // 确保解析结果是数组
+    if (!Array.isArray(logsCache)) {
+      logsCache = [];
+    }
     lastCacheTime = now;
     return logsCache;
   } catch (error) {
     if (error.code === 'ENOENT') {
+      logsCache = [];
+      lastCacheTime = now;
+      return [];
+    }
+    // JSON 解析失败时，返回空数组而不是抛出错误
+    if (error instanceof SyntaxError) {
+      console.error('日志文件 JSON 解析失败，重置为空:', error.message);
       logsCache = [];
       lastCacheTime = now;
       return [];
