@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Activity, Users, Key, BarChart3, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
+import { Activity, Users, Key, BarChart3, ArrowRight, CheckCircle2, XCircle, Upload, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
@@ -15,6 +15,8 @@ export default function Dashboard() {
         todayRequests: 0
     });
     const [isLoading, setIsLoading] = useState(true);
+    const [tokenText, setTokenText] = useState('');
+    const [uploadStatus, setUploadStatus] = useState({ loading: false, message: '', error: false });
 
     useEffect(() => {
         const fetchData = async () => {
@@ -63,6 +65,59 @@ export default function Dashboard() {
 
         fetchData();
     }, [token]);
+
+    const handleBatchAdd = async () => {
+        if (!tokenText.trim()) return;
+
+        setUploadStatus({ loading: true, message: '', error: false });
+        try {
+            const res = await fetch('/admin/tokens/batch-add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Admin-Token': token
+                },
+                body: JSON.stringify({ text: tokenText })
+            });
+
+            const text = await res.text();
+            if (!text) {
+                setUploadStatus({ loading: false, message: '服务器无响应', error: true });
+                return;
+            }
+
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch {
+                setUploadStatus({ loading: false, message: '响应格式错误', error: true });
+                return;
+            }
+
+            if (res.ok && data.success) {
+                setUploadStatus({ loading: false, message: data.message, error: false });
+                setTokenText('');
+                // 刷新统计数据
+                const statsRes = await fetch('/admin/tokens/stats', { headers: { 'X-Admin-Token': token } });
+                const statsText = await statsRes.text();
+                if (statsText) {
+                    try {
+                        const newStats = JSON.parse(statsText);
+                        setStats(prev => ({
+                            ...prev,
+                            tokens: newStats.total || prev.tokens,
+                            tokenEnabled: newStats.enabled || prev.tokenEnabled,
+                            tokenDisabled: newStats.disabled || prev.tokenDisabled
+                        }));
+                    } catch {}
+                }
+            } else {
+                setUploadStatus({ loading: false, message: data.error || '添加失败', error: true });
+            }
+        } catch (error) {
+            setUploadStatus({ loading: false, message: error.message, error: true });
+        }
+    };
 
     const container = {
         hidden: { opacity: 0 },
@@ -139,6 +194,46 @@ export default function Dashboard() {
                     subtext="实时统计"
                 />
             </div>
+
+            {/* Batch Add Refresh Token */}
+            <motion.div variants={item} className="bg-white rounded-xl border border-zinc-200 p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-violet-50 text-violet-600">
+                        <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-semibold text-zinc-900">批量添加 Refresh Token</h3>
+                        <p className="text-xs text-zinc-500">每行一个，格式: refresh_token----project_id</p>
+                    </div>
+                </div>
+                <textarea
+                    value={tokenText}
+                    onChange={(e) => setTokenText(e.target.value)}
+                    placeholder="1//0eXXXX...----project-id-123&#10;1//0eYYYY...----project-id-456"
+                    className="w-full h-32 px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-mono text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 resize-none"
+                />
+                <div className="flex items-center justify-between mt-4">
+                    <div className="text-sm">
+                        {uploadStatus.message && (
+                            <span className={uploadStatus.error ? 'text-red-600' : 'text-emerald-600'}>
+                                {uploadStatus.message}
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        onClick={handleBatchAdd}
+                        disabled={uploadStatus.loading || !tokenText.trim()}
+                        className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white text-sm font-medium rounded-lg hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {uploadStatus.loading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Upload className="w-4 h-4" />
+                        )}
+                        添加
+                    </button>
+                </div>
+            </motion.div>
 
             {/* Quick Start */}
             <motion.div variants={item} className="bg-white rounded-xl border border-zinc-200 p-8 shadow-sm">

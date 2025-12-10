@@ -4,7 +4,7 @@ import archiver from 'archiver';
 import { createKey, loadKeys, deleteKey, updateKeyRateLimit, getKeyStats } from './key_manager.js';
 import { getRecentLogs, clearLogs, addLog } from './log_manager.js';
 import { getSystemStatus, incrementRequestCount, getTodayRequestCount } from './monitor.js';
-import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens } from './token_admin.js';
+import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens, batchAddRefreshTokens } from './token_admin.js';
 import { createSession, validateSession, destroySession, verifyPassword, adminAuth } from './session.js';
 import { loadSettings, saveSettings } from './settings_manager.js';
 import tokenManager from '../auth/token_manager.js';
@@ -363,6 +363,24 @@ router.post('/tokens/import', upload.single('file'), async (req, res) => {
     res.json(result);
   } catch (error) {
     await addLog('error', `导入失败: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 批量添加 Refresh Token（文本格式：每行 refresh_token----project_id）
+router.post('/tokens/batch-add', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: '请提供要添加的 Token 数据' });
+    }
+
+    await addLog('info', '正在批量添加 Refresh Token...');
+    const result = await batchAddRefreshTokens(text);
+    await addLog('success', result.message);
+    res.json(result);
+  } catch (error) {
+    await addLog('error', `批量添加失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });

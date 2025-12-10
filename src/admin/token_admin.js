@@ -229,6 +229,54 @@ function exchangeCodeForToken(code, port, origin) {
   });
 }
 
+// 批量添加 Refresh Token（格式：refresh_token----project_id）
+export async function batchAddRefreshTokens(text) {
+  const lines = text.split('\n').filter(line => line.trim());
+  const accounts = await loadAccounts();
+  let addedCount = 0;
+  let skippedCount = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const parts = trimmed.split('----');
+    if (parts.length !== 2) {
+      logger.warn(`跳过无效行: ${trimmed}`);
+      skippedCount++;
+      continue;
+    }
+
+    const [refresh_token, project_id] = parts;
+
+    // 检查是否已存在相同的 refresh_token
+    const exists = accounts.some(acc => acc.refresh_token === refresh_token);
+    if (exists) {
+      logger.info(`跳过重复的 refresh_token: ${refresh_token.substring(0, 20)}...`);
+      skippedCount++;
+      continue;
+    }
+
+    accounts.push({
+      refresh_token: refresh_token.trim(),
+      project_id: project_id.trim(),
+      timestamp: Date.now(),
+      enable: true
+    });
+    addedCount++;
+  }
+
+  await saveAccounts(accounts);
+  logger.info(`批量添加完成: 成功 ${addedCount} 个, 跳过 ${skippedCount} 个`);
+
+  return {
+    success: true,
+    added: addedCount,
+    skipped: skippedCount,
+    message: `成功添加 ${addedCount} 个账号${skippedCount > 0 ? `，跳过 ${skippedCount} 个` : ''}`
+  };
+}
+
 // 批量导入 Token
 export async function importTokens(filePath) {
   try {
