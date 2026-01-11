@@ -322,13 +322,19 @@ export async function generateRawResponse(requestBody, onChunk, refreshToken = n
     }
   }
 
-  // 打印最后两个 data chunk 用于调试
-  console.log('\n========== [RAW API] 最后两个 data chunks ==========');
-  lastTwoChunks.forEach((chunk, index) => {
-    const label = index === lastTwoChunks.length - 1 ? '倒数第1个' : '倒数第2个';
-    console.log(`[${label}]`, JSON.stringify(chunk, null, 2));
-  });
-  console.log('====================================================\n');
+  // 只在没有 finishReason 时打印最后两个 chunk，用于分析 3 系列模型的安全过滤
+  const lastChunk = lastTwoChunks[lastTwoChunks.length - 1];
+  const finishReason = lastChunk?.candidates?.[0]?.finishReason;
+
+  if (!finishReason) {
+    console.log('\n========== [RAW API] 无 finishReason - 最后两个 chunks ==========');
+    console.log(`[模型] ${lastChunk?.modelVersion || 'unknown'}`);
+    lastTwoChunks.forEach((chunk, index) => {
+      const label = index === lastTwoChunks.length - 1 ? '倒数第1个' : '倒数第2个';
+      console.log(`[${label}]`, JSON.stringify(chunk, null, 2));
+    });
+    console.log('=================================================================\n');
+  }
 
   return lastResponse;
 }
