@@ -172,7 +172,7 @@ export async function generateAssistantResponse(requestBody, callback, refreshTo
   return { usageMetadata };
 }
 
-// 用于 Google 原生 API 的非流式请求函数
+// 用于 Google 原生 API 的非流式请求函数（实际使用流式接口请求，然后拼接返回）
 export async function generateRawResponseNonStream(requestBody, refreshToken = null) {
   const token = refreshToken
     ? await tokenManager.getTokenByRefreshToken(refreshToken)
@@ -188,7 +188,8 @@ export async function generateRawResponseNonStream(requestBody, refreshToken = n
     requestBody.project = token.project_id;
   }
 
-  const response = await fetch(config.api.nonStreamUrl, {
+  // 使用流式 URL 请求
+  const response = await fetch(config.api.url, {
     method: 'POST',
     headers: {
       'Host': config.api.host,
@@ -202,17 +203,53 @@ export async function generateRawResponseNonStream(requestBody, refreshToken = n
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw createApiError(response, errorText, token, requestBody, config.api.nonStreamUrl);
+    throw createApiError(response, errorText, token, requestBody, config.api.url);
   }
 
-  const responseText = await response.text();
-  try {
-    const data = JSON.parse(responseText);
-    // 返回 response 字段（与流式接口格式一致）
-    return data.response || data;
-  } catch (e) {
-    throw new Error(`JSON解析失败: ${e.message}. 原始响应: ${responseText.substring(0, 200)}`);
+  // 读取流式响应并拼接
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  // 收集所有 parts
+  const allParts = [];
+  let finalResponse = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value);
+    const lines = chunk.split('\n').filter(line => line.startsWith('data: '));
+
+    for (const line of lines) {
+      const jsonStr = line.slice(6);
+      try {
+        const data = JSON.parse(jsonStr);
+        if (data.response) {
+          finalResponse = data.response;
+
+          // 收集 parts
+          const parts = data.response?.candidates?.[0]?.content?.parts;
+          if (parts) {
+            allParts.push(...parts);
+          }
+        }
+      } catch (e) {
+        // 忽略解析错误
+      }
+    }
   }
+
+  if (!finalResponse) {
+    throw new Error('未收到有效响应');
+  }
+
+  // 合并所有 parts 到最终响应
+  if (finalResponse.candidates?.[0]?.content) {
+    finalResponse.candidates[0].content.parts = allParts;
+  }
+
+  return finalResponse;
 }
 
 // 用于 Google 原生 API 的流式透传函数
