@@ -291,6 +291,9 @@ export async function generateRawResponse(requestBody, onChunk, refreshToken = n
   const decoder = new TextDecoder();
   let lastResponse = null;
 
+  // 用于记录最后两个 data chunk 的环形缓冲
+  const lastTwoChunks = [];
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -306,12 +309,26 @@ export async function generateRawResponse(requestBody, onChunk, refreshToken = n
         if (data.response) {
           lastResponse = data.response;
           onChunk(data.response);
+
+          // 记录最后两个 chunk
+          lastTwoChunks.push(data.response);
+          if (lastTwoChunks.length > 2) {
+            lastTwoChunks.shift();
+          }
         }
       } catch (e) {
         // 忽略解析错误
       }
     }
   }
+
+  // 打印最后两个 data chunk 用于调试
+  console.log('\n========== [RAW API] 最后两个 data chunks ==========');
+  lastTwoChunks.forEach((chunk, index) => {
+    const label = index === lastTwoChunks.length - 1 ? '倒数第1个' : '倒数第2个';
+    console.log(`[${label}]`, JSON.stringify(chunk, null, 2));
+  });
+  console.log('====================================================\n');
 
   return lastResponse;
 }
