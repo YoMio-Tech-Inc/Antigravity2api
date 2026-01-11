@@ -4,6 +4,88 @@ import path from 'path';
 import { spawn } from 'child_process';
 import logger from '../utils/logger.js';
 
+// ============ Uploader 配置 ============
+const UPLOADER_CONFIG = {
+  NEW_API_PASSWORD: "gHAVUMjhlnLPKt8Asz60SxV3oW2T9kU=",
+  NEW_API_USER: "1",
+  BASE_URL: "http://170.106.99.24:17154",
+  API_ENDPOINT: "http://34.105.1.43:17151/api/channel/",
+  PRIORITY: 8,
+  TAG: "Antigravity",
+  MODELS: [
+    "gemini-3-flash",
+    "claude-opus-4-5-20251101",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "claude-sonnet-4-5-20250929-thinking",
+    "claude-sonnet-4-5-20250929",
+    "gemini-3-pro",
+  ],
+  MODEL_MAPPING: {
+    "gemini-3-pro": "gemini-3-pro-high",
+    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929-thinking": "claude-sonnet-4-5-thinking",
+    "claude-opus-4-5-20251101-thinking": "claude-opus-4-5-thinking",
+    "gemini-flash-lite-latest": "gemini-2.5-flash-lite",
+    "gemini-flash-latest": "gemini-2.5-flash",
+  }
+};
+
+// 构建上传 payload
+function buildUploaderPayload(projectId, refreshToken) {
+  return {
+    mode: "single",
+    fan_out_by_model: true,
+    channel: {
+      type: 24,
+      max_input_tokens: 0,
+      other: "",
+      models: UPLOADER_CONFIG.MODELS.join(","),
+      auto_ban: 1,
+      groups: ["default"],
+      priority: UPLOADER_CONFIG.PRIORITY,
+      weight: 0,
+      multi_key_mode: "random",
+      settings: JSON.stringify({}),
+      name: projectId,
+      key: refreshToken,
+      base_url: UPLOADER_CONFIG.BASE_URL,
+      test_model: "",
+      model_mapping: JSON.stringify(UPLOADER_CONFIG.MODEL_MAPPING),
+      tag: UPLOADER_CONFIG.TAG,
+      status_code_mapping: "",
+      setting: JSON.stringify({
+        force_format: false,
+        thinking_to_content: false,
+        proxy: "",
+        pass_through_body_enabled: false,
+        system_prompt: "",
+        system_prompt_override: false,
+        auto_disable_webhook_url: "",
+      }),
+      group: "default",
+    },
+  };
+}
+
+// 上传单个 credential 到 New API
+async function uploadCredential(projectId, refreshToken) {
+  const payload = buildUploaderPayload(projectId, refreshToken);
+
+  const response = await fetch(UPLOADER_CONFIG.API_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${UPLOADER_CONFIG.NEW_API_PASSWORD}`,
+      'New-Api-User': UPLOADER_CONFIG.NEW_API_USER,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await response.text();
+  return { status: response.status, response: text, projectId };
+}
+
 const ACCOUNTS_FILE = path.join(process.cwd(), 'data', 'accounts.json');
 
 // 读取所有账号
@@ -235,6 +317,7 @@ export async function batchAddRefreshTokens(text) {
   const accounts = await loadAccounts();
   let addedCount = 0;
   let skippedCount = 0;
+  const newCredentials = []; // 保存新增的凭证用于上传
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -257,23 +340,57 @@ export async function batchAddRefreshTokens(text) {
       continue;
     }
 
+    const trimmedRefreshToken = refresh_token.trim();
+    const trimmedProjectId = project_id.trim();
+
     accounts.push({
-      refresh_token: refresh_token.trim(),
-      project_id: project_id.trim(),
+      refresh_token: trimmedRefreshToken,
+      project_id: trimmedProjectId,
       timestamp: Date.now(),
       enable: true
     });
+
+    // 保存用于上传 (project_id, refresh_token)
+    newCredentials.push({ projectId: trimmedProjectId, refreshToken: trimmedRefreshToken });
     addedCount++;
   }
 
   await saveAccounts(accounts);
   logger.info(`批量添加完成: 成功 ${addedCount} 个, 跳过 ${skippedCount} 个`);
 
+  // 上传新增的凭证到 New API
+  let uploadedCount = 0;
+  let uploadFailedCount = 0;
+
+  if (newCredentials.length > 0) {
+    logger.info(`开始上传 ${newCredentials.length} 个凭证到 New API...`);
+
+    for (const { projectId, refreshToken } of newCredentials) {
+      try {
+        const result = await uploadCredential(projectId, refreshToken);
+        if (result.status === 200 || result.status === 201) {
+          logger.info(`上传成功: ${projectId}`);
+          uploadedCount++;
+        } else {
+          logger.warn(`上传失败: ${projectId}, 状态码: ${result.status}, 响应: ${result.response}`);
+          uploadFailedCount++;
+        }
+      } catch (error) {
+        logger.error(`上传异常: ${projectId}, 错误: ${error.message}`);
+        uploadFailedCount++;
+      }
+    }
+
+    logger.info(`上传完成: 成功 ${uploadedCount} 个, 失败 ${uploadFailedCount} 个`);
+  }
+
   return {
     success: true,
     added: addedCount,
     skipped: skippedCount,
-    message: `成功添加 ${addedCount} 个账号${skippedCount > 0 ? `，跳过 ${skippedCount} 个` : ''}`
+    uploaded: uploadedCount,
+    uploadFailed: uploadFailedCount,
+    message: `成功添加 ${addedCount} 个账号${skippedCount > 0 ? `，跳过 ${skippedCount} 个` : ''}${uploadedCount > 0 ? `，已上传 ${uploadedCount} 个` : ''}${uploadFailedCount > 0 ? `，上传失败 ${uploadFailedCount} 个` : ''}`
   };
 }
 
