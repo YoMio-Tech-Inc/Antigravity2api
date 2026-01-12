@@ -14,7 +14,7 @@ const UPLOADER_CONFIG = {
   TAG: "Antigravity",
   MODELS: [
     "gemini-3-flash",
-    "claude-opus-4-5-20251101",
+    "claude-opus-4-5-20251101-thinking",
     "gemini-flash-latest",
     "gemini-flash-lite-latest",
     "claude-sonnet-4-5-20250929-thinking",
