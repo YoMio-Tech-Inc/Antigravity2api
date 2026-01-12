@@ -269,7 +269,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
     modelName.startsWith('gemini-3-pro-') ||
     modelName === "rev19-uic3-1p" ||
     modelName === "gpt-oss-120b-medium"
-  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+  const actualModelName = modelName
 
   // Use a default key if none provided (though it should be provided by the server)
   const cacheKey = apiKey || 'default';
