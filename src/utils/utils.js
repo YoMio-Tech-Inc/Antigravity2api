@@ -303,7 +303,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
 function generateNativeRequestBody(nativeRequest, modelName, apiKey) {
   const { contents, systemInstruction, generationConfig, tools, toolConfig, safetySettings } = nativeRequest;
 
-  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+  const actualModelName = modelName
 
   const cacheKey = apiKey || 'default';
   const { projectId, sessionId } = getCachedIds(cacheKey);
