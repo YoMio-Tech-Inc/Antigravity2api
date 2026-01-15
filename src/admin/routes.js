@@ -367,7 +367,7 @@ router.post('/tokens/import', upload.single('file'), async (req, res) => {
   }
 });
 
-// 批量添加 Refresh Token（文本格式：每行 refresh_token----project_id）
+// 批量添加 Refresh Token（每行一个纯 refresh_token，project_id 自动获取）
 router.post('/tokens/batch-add', async (req, res) => {
   try {
     const { text } = req.body;

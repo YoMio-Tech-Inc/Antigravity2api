@@ -311,7 +311,7 @@ function exchangeCodeForToken(code, port, origin) {
   });
 }
 
-// 批量添加 Refresh Token（格式：refresh_token----project_id）
+// 批量添加 Refresh Token（纯 refresh_token，project_id 自动获取）
 export async function batchAddRefreshTokens(text) {
   const lines = text.split('\n').filter(line => line.trim());
   const accounts = await loadAccounts();
@@ -320,17 +320,8 @@ export async function batchAddRefreshTokens(text) {
   const newCredentials = []; // 保存新增的凭证用于上传
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const parts = trimmed.split('----');
-    if (parts.length !== 2) {
-      logger.warn(`跳过无效行: ${trimmed}`);
-      skippedCount++;
-      continue;
-    }
-
-    const [refresh_token, project_id] = parts;
+    const refresh_token = line.trim();
+    if (!refresh_token) continue;
 
     // 检查是否已存在相同的 refresh_token
     const exists = accounts.some(acc => acc.refresh_token === refresh_token);
@@ -340,18 +331,15 @@ export async function batchAddRefreshTokens(text) {
       continue;
     }
 
-    const trimmedRefreshToken = refresh_token.trim();
-    const trimmedProjectId = project_id.trim();
-
     accounts.push({
-      refresh_token: trimmedRefreshToken,
-      project_id: trimmedProjectId,
+      refresh_token: refresh_token,
+      // project_id 会在首次使用时自动获取
       timestamp: Date.now(),
       enable: true
     });
 
-    // 保存用于上传 (project_id, refresh_token)
-    newCredentials.push({ projectId: trimmedProjectId, refreshToken: trimmedRefreshToken });
+    // 保存用于上传 (使用 refresh_token 前缀作为名称)
+    newCredentials.push({ projectId: `token-${refresh_token.substring(0, 10)}`, refreshToken: refresh_token });
     addedCount++;
   }
 

@@ -9,6 +9,13 @@ const __dirname = path.dirname(__filename);
 const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
 const CLIENT_SECRET = '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';
 
+// Antigravity API 常量
+const ANTIGRAVITY_API_ENDPOINT = 'https://cloudcode-pa.googleapis.com';
+const ANTIGRAVITY_API_VERSION = 'v1internal';
+const ANTIGRAVITY_API_USER_AGENT = 'google-api-nodejs-client/9.15.1';
+const ANTIGRAVITY_API_CLIENT = 'google-cloud-sdk vscode_cloudshelleditor/0.1';
+const ANTIGRAVITY_CLIENT_METADATA = '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}';
+
 class TokenManager {
   constructor(filePath = path.join(__dirname,'..','..','data' ,'accounts.json')) {
     this.filePath = filePath;
@@ -79,11 +86,148 @@ class TokenManager {
       token.access_token = data.access_token;
       token.expires_in = data.expires_in;
       token.timestamp = Date.now();
+
+      // 如果没有 project_id，尝试获取一个
+      if (!token.project_id) {
+        try {
+          const projectId = await this.fetchProjectID(token.access_token);
+          if (projectId) {
+            token.project_id = projectId;
+            log.info(`成功获取 project_id: ${projectId}`);
+          }
+        } catch (err) {
+          log.warn(`获取 project_id 失败: ${err.message}`);
+        }
+      }
+
       this.saveToFile();
       return token;
     } else {
       throw { statusCode: response.status, message: await response.text() };
     }
+  }
+
+  // 获取 project_id (通过 loadCodeAssist API)
+  async fetchProjectID(accessToken) {
+    log.info('正在获取 project_id...');
+
+    const requestBody = {
+      metadata: {
+        ideType: 'ANTIGRAVITY',
+        platform: 'PLATFORM_UNSPECIFIED',
+        pluginType: 'GEMINI'
+      }
+    };
+
+    const url = `${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': ANTIGRAVITY_API_USER_AGENT,
+        'X-Goog-Api-Client': ANTIGRAVITY_API_CLIENT,
+        'Client-Metadata': ANTIGRAVITY_CLIENT_METADATA
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`loadCodeAssist 请求失败 (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // 尝试从响应中提取 projectID
+    let projectId = '';
+    if (typeof data.cloudaicompanionProject === 'string') {
+      projectId = data.cloudaicompanionProject.trim();
+    } else if (data.cloudaicompanionProject?.id) {
+      projectId = data.cloudaicompanionProject.id.trim();
+    }
+
+    // 如果没有获取到 projectID，尝试 onboardUser
+    if (!projectId) {
+      let tierID = 'legacy-tier';
+      if (Array.isArray(data.allowedTiers)) {
+        for (const tier of data.allowedTiers) {
+          if (tier.isDefault === true && tier.id) {
+            tierID = tier.id.trim();
+            break;
+          }
+        }
+      }
+
+      projectId = await this.onboardUser(accessToken, tierID);
+    }
+
+    return projectId;
+  }
+
+  // 用户 onboarding 以获取 project_id
+  async onboardUser(accessToken, tierID) {
+    log.info(`正在进行用户 onboarding... tierID: ${tierID}`);
+
+    const requestBody = {
+      tierId: tierID,
+      metadata: {
+        ideType: 'ANTIGRAVITY',
+        platform: 'PLATFORM_UNSPECIFIED',
+        pluginType: 'GEMINI'
+      }
+    };
+
+    const url = `${ANTIGRAVITY_API_ENDPOINT}/${ANTIGRAVITY_API_VERSION}:onboardUser`;
+    const maxAttempts = 5;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      log.info(`onboardUser 轮询尝试 ${attempt}/${maxAttempts}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'User-Agent': ANTIGRAVITY_API_USER_AGENT,
+          'X-Goog-Api-Client': ANTIGRAVITY_API_CLIENT,
+          'Client-Metadata': ANTIGRAVITY_CLIENT_METADATA
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`onboardUser 请求失败 (${response.status}): ${errorText.substring(0, 200)}`);
+      }
+
+      const data = await response.json();
+
+      if (data.done === true) {
+        let projectId = '';
+        const responseData = data.response;
+        if (responseData) {
+          if (typeof responseData.cloudaicompanionProject === 'string') {
+            projectId = responseData.cloudaicompanionProject.trim();
+          } else if (responseData.cloudaicompanionProject?.id) {
+            projectId = responseData.cloudaicompanionProject.id.trim();
+          }
+        }
+
+        if (projectId) {
+          log.info(`onboardUser 成功获取 project_id: ${projectId}`);
+          return projectId;
+        }
+
+        throw new Error('onboardUser 响应中没有 project_id');
+      }
+
+      // 等待 2 秒后重试
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    throw new Error('onboardUser 轮询超时');
   }
 
   saveToFile() {
@@ -126,6 +270,21 @@ class TokenManager {
         if (this.isExpired(token)) {
           await this.refreshToken(token);
         }
+
+        // 如果 token 没有 project_id，尝试获取一个
+        if (!token.project_id && token.access_token) {
+          try {
+            const projectId = await this.fetchProjectID(token.access_token);
+            if (projectId) {
+              token.project_id = projectId;
+              this.saveToFile();
+              log.info(`成功获取 project_id: ${projectId}`);
+            }
+          } catch (err) {
+            log.warn(`获取 project_id 失败: ${err.message}`);
+          }
+        }
+
         this.currentIndex = (this.currentIndex + 1) % this.tokens.length;
 
         // 记录使用统计
@@ -208,6 +367,21 @@ class TokenManager {
       if (this.isExpired(token)) {
         await this.refreshToken(token);
       }
+
+      // 如果 token 没有 project_id，尝试获取一个
+      if (!token.project_id && token.access_token) {
+        try {
+          const projectId = await this.fetchProjectID(token.access_token);
+          if (projectId) {
+            token.project_id = projectId;
+            this.saveToFile();
+            log.info(`成功获取 project_id: ${projectId}`);
+          }
+        } catch (err) {
+          log.warn(`获取 project_id 失败: ${err.message}`);
+        }
+      }
+
       this.recordUsage(token);
       log.info(`🎯 指定使用 refresh_token 账号 (总请求: ${this.getTokenRequests(token)})`);
       return token;

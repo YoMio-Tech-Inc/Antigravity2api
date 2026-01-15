@@ -203,13 +203,13 @@ export default function Dashboard() {
                     </div>
                     <div>
                         <h3 className="text-base font-semibold text-zinc-900">批量添加 Refresh Token</h3>
-                        <p className="text-xs text-zinc-500">每行一个，格式: refresh_token----project_id</p>
+                        <p className="text-xs text-zinc-500">每行一个 refresh_token，project_id 会自动获取</p>
                     </div>
                 </div>
                 <textarea
                     value={tokenText}
                     onChange={(e) => setTokenText(e.target.value)}
-                    placeholder="1//0eXXXX...----project-id-123&#10;1//0eYYYY...----project-id-456"
+                    placeholder="1//0eXXXX...&#10;1//0eYYYY..."
                     className="w-full h-32 px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-mono text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/5 focus:border-zinc-900 resize-none"
                 />
                 <div className="flex items-center justify-between mt-4">
