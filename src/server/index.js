@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { generateAssistantResponse, generateRawResponse, generateRawResponseNonStream, getAvailableModels, ApiError } from '../api/client.js';
-import { generateRequestBody, generateNativeRequestBody } from '../utils/utils.js';
+import { generateRequestBody, generateNativeRequestBody, isImageGenerationRequest } from '../utils/utils.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 import adminRoutes, { incrementRequestCount, addLog } from '../admin/routes.js';
@@ -310,8 +310,10 @@ app.post('/v1beta/models/:modelAction', async (req, res) => {
       }, refreshToken);
       res.end();
     } else {
-      // 非流式响应 - 调用真正的非流式接口
-      const finalResponse = await generateRawResponseNonStream(requestBody, refreshToken);
+      // 非流式响应
+      // 检测是否为图片生成请求，图片生成需要使用真正的非流式接口
+      const isImageRequest = isImageGenerationRequest(req.body.generationConfig);
+      const finalResponse = await generateRawResponseNonStream(requestBody, refreshToken, isImageRequest);
       res.json(finalResponse);
     }
   } catch (error) {

@@ -172,8 +172,9 @@ export async function generateAssistantResponse(requestBody, callback, refreshTo
   return { usageMetadata };
 }
 
-// 用于 Google 原生 API 的非流式请求函数（实际使用流式接口请求，然后拼接返回）
-export async function generateRawResponseNonStream(requestBody, refreshToken = null) {
+// 用于 Google 原生 API 的非流式请求函数
+// useRealNonStream: true 时使用真正的非流式接口（用于图片生成等），false 时使用流式接口模拟
+export async function generateRawResponseNonStream(requestBody, refreshToken = null, useRealNonStream = false) {
   const token = refreshToken
     ? await tokenManager.getTokenByRefreshToken(refreshToken)
     : await tokenManager.getToken();
@@ -188,8 +189,10 @@ export async function generateRawResponseNonStream(requestBody, refreshToken = n
     requestBody.project = token.project_id;
   }
 
-  // 使用流式 URL 请求
-  const response = await fetch(config.api.url, {
+  // 根据参数选择 URL
+  const url = useRealNonStream ? config.api.nonStreamUrl : config.api.url;
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Host': config.api.host,
@@ -203,10 +206,17 @@ export async function generateRawResponseNonStream(requestBody, refreshToken = n
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw createApiError(response, errorText, token, requestBody, config.api.url);
+    throw createApiError(response, errorText, token, requestBody, url);
   }
 
-  // 读取流式响应并拼接
+  // 如果使用真正的非流式接口，直接返回 JSON 响应
+  if (useRealNonStream) {
+    const data = await response.json();
+    // 非流式接口返回的是 { response: {...} } 格式
+    return data.response || data;
+  }
+
+  // 流式接口模拟非流式：读取流式响应并拼接
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
 

@@ -366,5 +366,6 @@ export {
   generateSessionId,
   generateProjectId,
   generateRequestBody,
-  generateNativeRequestBody
+  generateNativeRequestBody,
+  isImageGenerationRequest
 }
