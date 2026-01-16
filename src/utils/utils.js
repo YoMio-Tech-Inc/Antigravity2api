@@ -300,6 +300,12 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
   }
 }
 
+// 检测是否为图片生成请求（通过 generationConfig.responseModalities 判断）
+function isImageGenerationRequest(generationConfig) {
+  if (!generationConfig?.responseModalities) return false;
+  return generationConfig.responseModalities.includes('Image');
+}
+
 function generateNativeRequestBody(nativeRequest, modelName, apiKey) {
   const { contents, systemInstruction, generationConfig, tools, toolConfig, safetySettings } = nativeRequest;
 
@@ -308,25 +314,32 @@ function generateNativeRequestBody(nativeRequest, modelName, apiKey) {
   const cacheKey = apiKey || 'default';
   const { projectId, sessionId } = getCachedIds(cacheKey);
 
+  // 检测是否为图片生成请求
+  const isImageRequest = isImageGenerationRequest(generationConfig);
+
   // 直接透传用户的原生请求参数，不做任何转换
   const request = {
     contents: contents,
     sessionId: sessionId
   };
 
-  // 只有用户提供了这些参数才添加，否则不添加（让 API 使用默认值）
-  if (systemInstruction) {
-    const originalText = systemInstruction.parts?.[0]?.text || '';
-    request.systemInstruction = {
-      role: systemInstruction.role || "user",
-      parts: [{ text: wrapSystemInstruction(originalText) }]
-    };
-  } else {
-    request.systemInstruction = {
-      role: "user",
-      parts: [{ text: wrapSystemInstruction('') }]
-    };
+  // 图片生成请求不添加 systemInstruction（图片模型不支持）
+  if (!isImageRequest) {
+    if (systemInstruction) {
+      const originalText = systemInstruction.parts?.[0]?.text || '';
+      request.systemInstruction = {
+        role: systemInstruction.role || "user",
+        parts: [{ text: wrapSystemInstruction(originalText) }]
+      };
+    } else {
+      request.systemInstruction = {
+        role: "user",
+        parts: [{ text: wrapSystemInstruction('') }]
+      };
+    }
   }
+
+  // 直接透传用户的 generationConfig
   if (generationConfig) {
     request.generationConfig = generationConfig;
   }
