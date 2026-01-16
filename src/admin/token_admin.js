@@ -20,6 +20,7 @@ const UPLOADER_CONFIG = {
     "claude-sonnet-4-5-20250929-thinking",
     "claude-sonnet-4-5-20250929",
     "gemini-3-pro",
+    "gemini-3-pro-image-preview",
   ],
   MODEL_MAPPING: {
     "gemini-3-pro": "gemini-3-pro-high",
@@ -28,6 +29,7 @@ const UPLOADER_CONFIG = {
     "claude-opus-4-5-20251101-thinking": "claude-opus-4-5-thinking",
     "gemini-flash-lite-latest": "gemini-2.5-flash-lite",
     "gemini-flash-latest": "gemini-2.5-flash",
+    "gemini-3-pro-image-preview": "gemini-3-pro-image",
   }
 };
 
