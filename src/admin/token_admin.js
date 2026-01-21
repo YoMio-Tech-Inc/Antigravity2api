@@ -9,7 +9,7 @@ const UPLOADER_CONFIG = {
   NEW_API_PASSWORD: "gHAVUMjhlnLPKt8Asz60SxV3oW2T9kU=",
   NEW_API_USER: "1",
   BASE_URL: "http://170.106.99.24:17154",
-  API_ENDPOINT: "http://34.105.1.43:17151/api/channel/",
+  API_ENDPOINT: "http://34.169.86.12:17151/api/channel/",
   PRIORITY: 8,
   TAG: "Antigravity",
   MODELS: [

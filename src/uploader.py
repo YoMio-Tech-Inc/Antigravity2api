@@ -82,7 +82,7 @@ def push_credential(name: str, key: str):
 
     with httpx.Client() as client:
         response = client.post(
-            "http://34.105.1.43:17151/api/channel/",
+            "http://34.169.86.12:17151/api/channel/",
             json=payload,
             headers=headers,
         )
