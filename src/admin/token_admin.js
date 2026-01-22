@@ -3,6 +3,7 @@ import AdmZip from 'adm-zip';
 import path from 'path';
 import { spawn } from 'child_process';
 import logger from '../utils/logger.js';
+import tokenManager from '../auth/token_manager.js';
 
 // ============ Uploader 配置 ============
 const UPLOADER_CONFIG = {
@@ -346,6 +347,8 @@ export async function batchAddRefreshTokens(text) {
   }
 
   await saveAccounts(accounts);
+  // 强制刷新 TokenManager 缓存，使新添加的 token 立即可用
+  tokenManager.forceReload();
   logger.info(`批量添加完成: 成功 ${addedCount} 个, 跳过 ${skippedCount} 个`);
 
   // 上传新增的凭证到 New API

@@ -28,6 +28,12 @@ class TokenManager {
     this.loadTokens();
   }
 
+  // 强制重新加载 token（跳过缓存）
+  forceReload() {
+    this.lastLoadTime = 0;
+    this.loadTokens();
+  }
+
   loadTokens() {
     try {
       // 避免频繁加载，1分钟内使用缓存
